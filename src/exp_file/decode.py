@@ -3,9 +3,6 @@ import logging
 import os
 import struct
 
-import aiofiles
-import magic
-import pylzma
 import lzma
 
 from pathlib import Path
@@ -91,12 +88,10 @@ def _get_entry_metadata(
         is_compressed=is_compressed,
         data=buffer.read(compressed_size),
     )
-    print("Compressed size: %d" % entry_data.compressed_size)
-    print("Read size: %d" % len(entry_data.data))
-    print("Raw size: %d" % entry_data.raw_size)
     logger.debug("Compressed size: %d", entry_data.compressed_size)
     logger.debug("Read size: %d", len(entry_data.data))
-    logger.debug(
+    logger.debug("Raw size: %d", entry_data.raw_size)
+    logger.info(
         "Read EXP entry data for file ID %d: compressed size %d, raw size %d, is compressed %d",
         entry.file_id,
         entry_data.compressed_size,
@@ -114,62 +109,65 @@ def _write_file_contents(
     outdir: Path,
 ) -> None:
     """
+    Writes the file contents to the output directory, handling the custom LZMA container.
+
+    LZMA containers are as follows:
+    1. Property Header (5 bytes): Contains LZMA properties (lc, lp, pb) and 
+       Dictionary Size encoded in BE.
+    2. Size Padding (8 bytes): Two redundant 32-bit integers representing the 
+       raw file size. These are skipped.
+    3. Compressed Body Remaining bytes: The raw LZMA stream. This stream
+       is encoded **without** an EOS marker.
+
+    As they are not standard, a synthetic header is created to decompress successfully.
+    It is as follows:
+        - Extract dictionary size as BE.
+        - Synthesize a new 13-byte header in LE.
+        - Add `raw_size` to the header using . The stream lacks an EOS marker,
+          so without it a EOS error occurs.
     """
     res_file = io.BytesIO()
     buffer.seek(entry_metadata.offset)
+    
     if file_metadata.is_compressed or file_metadata.compressed_size != file_metadata.raw_size:
-        raise NotImplementedError("Only uncompressed files are supported currently")
-        props = file_metadata.data[:5]
-        compressed_stream = file_metadata.data[5:]
-        props_byte = props[0]
-        lc = props_byte % 9
-        remainder = props_byte // 9
-        lp = remainder % 5
-        pb = remainder // 5
-        
-        dict_size = struct.unpack('>I', props[1:5])[0]
-        filters = [
-            {
-                "id": lzma.FILTER_LZMA1,
-                "lc": lc,
-                "lp": lp,
-                "pb": pb,
-                "dict_size": dict_size,
-            }
-        ]
-        decompressor = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=filters)
-        decompressed = decompressor.decompress(compressed_stream, max_length=file_metadata.raw_size)
-
+        # lzma prop 
         props_byte = file_metadata.data[0]
-        dict_size_bytes = file_metadata.data[1:5]
+
+        # read dictionary size as BE
+        dict_size = struct.unpack('>I', file_metadata.data[1:5])[0]
+
+        # skip next 8 bytes (redundant size padding)            
+        compressed_body = file_metadata.data[13:]
         
-        lc = props_byte % 9
-        remainder = props_byte // 9
-        lp = remainder % 5
-        pb = remainder // 5
-        buf = io.BytesIO(file_metadata.data[5:])
-        buf.seek(0)
-        filters = [{
-                "id": lzma.FILTER_LZMA2, 
-                "lc": lc,
-                "lp": lp,
-                "pb": pb,
-                "dict_size": dict_size
-            }]
-        reader = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=filters)
-        res_file.write(reader.decompress(buf.read(file_metadata.compressed_size)))
+        # create .lzma header
+        synthetic_header = struct.pack('<BIQ', props_byte, dict_size, file_metadata.raw_size)
+        logger.debug("Synthetic LZMA header: %s", synthetic_header.hex())
+        decompressed_data = lzma.decompress(
+            synthetic_header + compressed_body, 
+            format=lzma.FORMAT_ALONE
+        )
+        
+        res_file.write(decompressed_data)
+        
     else: 
         res_file.write(file_metadata.data)
+
     res_file.seek(0)
-    mime = magic.from_buffer(res_file.read(), mime=True)
+    header_bytes = res_file.read(32)
     res_file.seek(0)
-    if mime == "image/png":
+    
+    ext = ".dat"
+    if header_bytes.startswith(b'\x89PNG'):
         ext = ".png"
-    elif mime in ("image/jpeg", "image/jpg"):
+    elif header_bytes.startswith(b'\xFF\xD8'):
         ext = ".jpg"
+    elif header_bytes.startswith(b'kiwi\x02'):
+        ext = ".kiw"
     else:
         ext = ".dat"
-    out_path = outdir / f"file{entry_metadata.file_id}{ext}"
+    
+    out_path = outdir / f"file{entry_metadata.file_id:04d}{ext}"
+    logger.info("Writing file ID %d to %s", entry_metadata.file_id, out_path)
     with open(out_path, 'wb') as out_file:
         out_file.write(res_file.read())
 
