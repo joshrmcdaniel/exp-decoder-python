@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools >= 61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exp_file"
+description = "Project to decode exp files"
+readme = "README.md"
+keywords = ["shs", "cspud", "cod", "ea", "exp", "wiz"]
+license = {file = "LICENSE"}
+version = "1.0.0"
+requires-python = ">= 3.10"
+dependencies = [
+    "aiofiles >=25.1.0,<26.0.0",
+    "python-magic>=0.4.27,<0.5",
+    "python-magic-bin ; sys_platform == 'win32'",
+    "pylzma<=0.5,<0.6",
+]
+authors = [
+  {name = "Josh Mcdaniel", email = "80354972+joshrmcdaniel@users.noreply.github.com"},
+]
+classifiers = [
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Development Status :: 5 - Production/Stable",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+]
+
+[project.urls]
+homepage = "https://github.com/joshrmcdaniel/exp-decoder-python"
