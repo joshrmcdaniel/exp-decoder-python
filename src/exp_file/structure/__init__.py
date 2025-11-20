@@ -4,8 +4,12 @@ from .exp import (
     Data as EXPData,
 )
 
+from .kiw import (
+    EpisodeMetadata
+)
 __all__ = [
     "EXPHeader",
     "EXPEntry",
     "EXPData",
+    "EpisodeMetadata"
 ]

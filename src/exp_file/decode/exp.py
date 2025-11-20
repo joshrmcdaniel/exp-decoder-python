@@ -8,7 +8,14 @@ import lzma
 from pathlib import Path
 
 from .shared import write
-from .structure import EXPData, EXPEntry, EXPHeader
+from ..structure import EpisodeMetadata, EXPData, EXPEntry, EXPHeader
+
+
+__all__ = [
+    'read_episode_metadata',
+    'decode',
+]
+
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +179,25 @@ def _write_file_contents(
         out_file.write(res_file.read())
 
 
-def decode_exp_file(file_path: Path, outdir: Path) -> None:
+def read_episode_metadata(f: io.BufferedReader, *, entry_data: EXPEntry | None = None) -> EpisodeMetadata:
+    if entry_data:
+        f.seek(entry_data.offset)
+    pack_id = struct.unpack('>H', f.read(2))[0]
+    episode_num = struct.unpack('>H', f.read(2))[0]
+    title_len = struct.unpack('>H', f.read(2))[0]
+    title = f.read(title_len).decode('latin-1', errors='replace')
+    desc_len = struct.unpack('>H', f.read(2))[0]
+    description = f.read(desc_len).decode('latin-1', errors='replace')
+    return EpisodeMetadata(
+        pack_id=pack_id,
+        episode_num=episode_num,
+        title_len=title_len,
+        title=title,
+        desc_len=desc_len,
+        description=description,
+    )
+
+def decode(file_path: Path, outdir: Path) -> None:
     out_dir = outdir / file_path.name.removesuffix(".exp")
     with open(file_path, 'rb') as f:
         header = _decode_header(f)
@@ -191,8 +216,10 @@ def decode_exp_file(file_path: Path, outdir: Path) -> None:
             entry_metadata = _get_entry_metadata(
                 entry=entry,
                 buffer=f,
-            )
+            ) 
             try: 
+                if entry.file_id == 1:
+                    pass
                 _write_file_contents(
                     file_metadata=entry_metadata,
                     entry_metadata=entry,
